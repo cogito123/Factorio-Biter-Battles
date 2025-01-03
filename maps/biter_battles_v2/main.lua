@@ -484,8 +484,16 @@ local function on_tick()
         Gui.spy_fish()
 
         if storage.bb_game_won_by_team then
-            Game_over.reveal_map()
             Game_over.server_restart()
+            -- The server_restart() will delete previous surface. Don't reveal
+            -- the current one.
+            if not Game_over.reloaded_map() then
+                -- Make sure reveal_map() is executed after server_restart() to
+                -- avoid a situtation where we try to reveal chunks of a surface
+                -- that is being deleted at the same tick, potentially leading
+                -- to race condtion resulting in a segfaul.
+                Game_over.reveal_map()
+            end
         end
     end
 

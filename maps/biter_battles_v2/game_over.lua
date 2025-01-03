@@ -313,8 +313,14 @@ end
 
 local enemy_team_of = { ['north'] = 'south', ['south'] = 'north' }
 
+---Returns information whether map was just reloaded.
+---@return boolean
+function Public.reloaded_map()
+    return not storage.server_restart_timer
+end
+
 function Public.server_restart()
-    if not storage.server_restart_timer then
+    if Public.reloaded_map() then
         return
     end
     storage.server_restart_timer = storage.server_restart_timer - 5
