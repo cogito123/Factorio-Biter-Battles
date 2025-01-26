@@ -381,7 +381,7 @@ local function generate_extra_worm_turrets(surface, left_top)
     end
 
     for _ = 1, floor_amount, 1 do
-        local worm_turret_name = BiterRaffle.roll('worm', chunk_distance_to_center * 0.00015)
+        local worm_turret_name = BiterRaffle.roll(BiterRaffle.TYPE_WORM, chunk_distance_to_center * 0.00015)
         local v = chunk_tile_vectors[storage.random_generator(1, size_of_chunk_tile_vectors)]
         local position =
             surface.find_non_colliding_position(worm_turret_name, { left_top.x + v[1], left_top.y + v[2] }, 8, 1)
@@ -455,7 +455,7 @@ local function draw_biter_area(surface, left_top_x, left_top_y)
     for _ = 1, storage.random_generator(5, 10), 1 do
         local v = chunk_tile_vectors[storage.random_generator(1, size_of_chunk_tile_vectors)]
         local position = { x = left_top_x + v[1], y = left_top_y + v[2] }
-        local worm_turret_name = BiterRaffle.roll('worm', e)
+        local worm_turret_name = BiterRaffle.roll(BiterRaffle.TYPE_WORM, e)
         if
             Functions.is_biter_area(position, true)
             and surface.can_place_entity({ name = worm_turret_name, position = position })

@@ -2,21 +2,57 @@ local Public = {}
 local math_random = math.random
 local math_floor = math.floor
 
-local function get_raffle_table(level, name)
+Public.TYPE_BITER = 1
+Public.TYPE_SPITTER = 2
+Public.TYPE_MIXED = 3
+Public.TYPE_WORM = 4
+
+local SIZE_SMALL = 1
+local SIZE_MEDIUM = 2
+local SIZE_BIG = 3
+local SIZE_BEHEMOTH = 4
+
+local ENEMY = {
+    [Public.TYPE_BITER] = {
+        [SIZE_SMALL] = 'small-biter',
+        [SIZE_MEDIUM] = 'medium-biter',
+        [SIZE_BIG] = 'big-biter',
+        [SIZE_BEHEMOTH] = 'behemoth-biter',
+    },
+    [Public.TYPE_SPITTER] = {
+        [SIZE_SMALL] = 'small-spitter',
+        [SIZE_MEDIUM] = 'medium-spitter',
+        [SIZE_BIG] = 'big-spitter',
+        [SIZE_BEHEMOTH] = 'behemoth-spitter',
+    },
+    [Public.TYPE_WORM] = {
+        [SIZE_SMALL] = 'small-worm-turret',
+        [SIZE_MEDIUM] = 'medium-worm-turret',
+        [SIZE_BIG] = 'big-worm-turret',
+        [SIZE_BEHEMOTH] = 'behemoth-worm-turret',
+    },
+}
+
+local function get_enemy_name(size, type)
+    return ENEMY[type][size]
+end
+
+local function get_raffle_table(level)
     local raffle = {
-        ['small-' .. name] = 1000 - level * 1.75,
-        ['medium-' .. name] = -250 + level * 1.5,
-        ['big-' .. name] = 0,
-        ['behemoth-' .. name] = 0,
+        [SIZE_SMALL] = 1000 - level * 1.75,
+        [SIZE_MEDIUM] = -250 + level * 1.5,
+        [SIZE_BIG] = 0,
+        [SIZE_BEHEMOTH] = 0,
     }
 
     if level > 500 then
-        raffle['medium-' .. name] = 500 - (level - 500)
-        raffle['big-' .. name] = (level - 500) * 2
+        raffle[SIZE_MEDIUM] = 500 - (level - 500)
+        raffle[SIZE_BIG] = (level - 500) * 2
     end
     if level > 900 then
-        raffle['behemoth-' .. name] = (level - 900) * 8
+        raffle[SIZE_BEHEMOTH] = (level - 900) * 8
     end
+
     for k, _ in pairs(raffle) do
         if raffle[k] < 0 then
             raffle[k] = 0
@@ -25,8 +61,8 @@ local function get_raffle_table(level, name)
     return raffle
 end
 
-local function roll(evolution_factor, name)
-    local raffle = get_raffle_table(math_floor(evolution_factor * 1000), name)
+local function roll(evolution_factor, type)
+    local raffle = get_raffle_table(math_floor(evolution_factor * 1000))
     local max_chance = 0
     for _, v in pairs(raffle) do
         max_chance = max_chance + v
@@ -36,33 +72,33 @@ local function roll(evolution_factor, name)
     for k, v in pairs(raffle) do
         current_chance = current_chance + v
         if r <= current_chance then
-            return k
+            return get_enemy_name[type][k]
         end
     end
 end
 
 local function get_biter_name(evolution_factor)
-    return roll(evolution_factor, 'biter')
+    return roll(evolution_factor, Public.TYPE_BITER)
 end
 
 local function get_spitter_name(evolution_factor)
-    return roll(evolution_factor, 'spitter')
+    return roll(evolution_factor, Public.TYPE_SPITTER)
 end
 
 local function get_worm_raffle_table(level)
     local raffle = {
-        ['small-worm-turret'] = 1000 - level * 1.75,
-        ['medium-worm-turret'] = level,
-        ['big-worm-turret'] = 0,
-        ['behemoth-worm-turret'] = 0,
+        [SIZE_SMALL] = 1000 - level * 1.75,
+        [SIZE_MEDIUM] = level,
+        [SIZE_BIG] = 0,
+        [SIZE_BEHEMOTH] = 0,
     }
 
     if level > 500 then
-        raffle['medium-worm-turret'] = 500 - (level - 500)
-        raffle['big-worm-turret'] = (level - 500) * 2
+        raffle[SIZE_MEDIUM] = 500 - (level - 500)
+        raffle[SIZE_BIG] = (level - 500) * 2
     end
     if level > 900 then
-        raffle['behemoth-worm-turret'] = (level - 900) * 3
+        raffle[SIZE_BEHEMOTH] = (level - 900) * 3
     end
     for k, _ in pairs(raffle) do
         if raffle[k] < 0 then
@@ -83,7 +119,7 @@ local function get_worm_name(evolution_factor)
     for k, v in pairs(raffle) do
         current_chance = current_chance + v
         if r <= current_chance then
-            return k
+            return get_enemy_name[Public.TYPE_WORM][k]
         end
     end
 end
@@ -97,10 +133,10 @@ local function get_unit_name(evolution_factor)
 end
 
 local type_functions = {
-    ['spitter'] = get_spitter_name,
-    ['biter'] = get_biter_name,
-    ['mixed'] = get_unit_name,
-    ['worm'] = get_worm_name,
+    [Public.TYPE_BITER] = get_biter_name,
+    [Public.TYPE_MIXED] = get_unit_name,
+    [Public.TYPE_SPITTER] = get_spitter_name,
+    [Public.TYPE_WORM] = get_worm_name,
 }
 
 function Public.roll(entity_type, evolution_factor)
