@@ -1,5 +1,7 @@
 local CaptainUtils = require('comfy_panel.special_games.captain_utils')
+local CaptainStates = require('comfy_panel.special_games.captain_states')
 local Color = require('utils.color_presets')
+local Gui = require('utils.gui')
 local PlayerList = require('comfy_panel.player_list')
 local PlayerUtils = require('utils.player')
 local cpt_get_player = CaptainUtils.cpt_get_player
@@ -146,6 +148,101 @@ local function draw_picking_ui_list(frame)
     end
 end
 
+---Draws picking list timer.
+---@param frame LuaGuiElement Main picking UI frame
+local function draw_picking_ui_timer(frame)
+    local special = storage.special_games_variables.captain_mode
+    if not special.captain_pick_timer_enabled then
+        return
+    end
+
+    local flow = frame.add({
+        type = 'flow',
+        name = 'timer_flow',
+        direction = 'horizontal',
+    })
+    Gui.add_pusher(flow)
+    flow.add({
+        type = 'label',
+        name = 'timer',
+        caption = 'a',
+        style = 'green_label',
+    })
+    Gui.add_pusher(flow)
+end
+
+---Transform ticks into string representing whole seconds.
+---@param ticks integer
+---@return string
+local function ticks_to_seconds(ticks)
+    return tostring(math.floor(ticks / 60)) .. 's'
+end
+
+---Transform ticks into string. The resulting format is ZZm XX.Ys, where ZZ is full
+---minutes, XX is full seconds and Y is a fraction of a second. If there is less
+---than a minute, then only seconds are returned.
+local function ticks_to_time(ticks)
+    local str = ''
+    local minutes = math.floor(ticks / 60 / 60)
+    if minutes > 0 then
+        str = tostring(minutes) .. 'm '
+    end
+
+    return str .. ticks_to_seconds(ticks / 60 % 60 * 60)
+end
+
+---Calculate color for timer based on remaining time.
+---Returns green when time is high, red when time is low.
+---@param ticks integer Remaining time in ticks
+---@return {r: number, g: number, b: number} Color
+local function timer_gradient(ticks)
+    local special = storage.special_games_variables.captain_mode
+    -- p: percentage of base time remaining, clamped to [0, 1]
+    local p = math.max(0, math.min(1, ticks / special.captain_pick_timer_base))
+    -- ratio: stays at 1 (green) until 30% time remaining, then transitions from 1 to 0
+    -- When p >= 0.3: ratio = 1 (fully green)
+    -- When p < 0.3: ratio = p/0.3 (scales from 1 at p=0.3 down to 0 at p=0)
+    local ratio = p >= 0.3 and 1 or p / 0.3
+    -- Transition: green (ratio=1) -> bright yellow (ratio=0.5) -> red (ratio=0)
+    local r = ratio >= 0.5 and math.floor(255 * (1 - (ratio - 0.5) * 2)) or 255
+    local g = ratio >= 0.5 and 255 or math.floor(255 * ratio * 2)
+    local b = 0
+    return { r = r, g = g, b = b }
+end
+
+---Updates picking UI timer.
+---@param player LuaPlayer Captain that receives an update.
+function Public.update_picking_ui_timer(player)
+    local special = storage.special_games_variables.captain_mode
+    if not special.captain_pick_timer_enabled then
+        return
+    end
+
+    -- This element always exists, if we're here.
+    local list = player.gui.screen['captain_picking_ui']['timer_flow']['timer']
+    local ticks = special.captain_pick_timer[special.next_pick_force]
+    local timer = ticks_to_seconds(ticks)
+    local caption = string.format('Time remaining to make the next pick: %s', timer)
+    if special.captain_pick_timer_paused then
+        caption = caption .. ' [PAUSED]'
+    end
+
+    list.caption = caption
+    list.style.font_color = timer_gradient(ticks)
+end
+
+---Goes through all connected players and tries to locate player
+---that is performing picks right now and updates the displayed timer.
+---@param force string Force that does the picking now.
+function Public.try_update_picking_ui_timer(force)
+    for _, player in ipairs(game.forces[force].connected_players) do
+        if player.gui.screen['captain_picking_ui'] then
+            Public.update_picking_ui_timer(player)
+            break
+        end
+    end
+end
+
 ---@param player LuaPlayer
 local function draw_picking_ui_base(player)
     local location = storage.special_games_variables.captain_mode.ui_picking_location[player.name]
@@ -163,6 +260,7 @@ local function draw_picking_ui_base(player)
     end
 
     draw_picking_ui_title(frame)
+    draw_picking_ui_timer(frame)
     draw_picking_ui_list(frame)
 end
 
@@ -197,28 +295,36 @@ end
 
 ---Updates the title of the picking UI.
 ---@param cpt LuaPlayer Captain for whom we're going to update it.
----@param picking boolean If this captain is currently picking or not.
-function Public.update_picking_ui_title(cpt, picking)
+---@param state integer State of UI for this captain
+function Public.update_picking_ui_title(cpt, state)
     local title = cpt.gui.screen['captain_picking_ui']['title_root']['title']
-    if picking then
+    if state == CaptainStates.PICKS.RUNNING then
         title.caption = 'Who do you want to pick?'
-    else
+    elseif state == CaptainStates.PICKS.IDLE then
         title.caption = 'The other captain is picking right now'
+    else
+        title.caption = 'Picking is paused right now'
     end
 end
 
 ---Updates the state of the pick buttons in the picking UI.
 ---@param cpt LuaPlayer Captain for whom we're going to update it.
----@param enabled boolean New state of buttons
-function Public.update_picking_ui_pick_buttons(cpt, enabled)
+---@param state integer State of UI buttons for this captain
+function Public.update_picking_ui_pick_buttons(cpt, state)
     ---Updates state of the picking button.
     ---@param button LuaGuiElement Button element
     local function update_state(button)
+        local enabled = true
         local style = 'green_button'
         local tooltip = 'Click to select'
-        if not enabled then
+        if state == CaptainStates.PICKS.IDLE then
+            enabled = false
             style = 'red_button'
             tooltip = 'Wait for your turn!'
+        elseif state == CaptainStates.PICKS.PAUSED then
+            enabled = false
+            style = 'red_button'
+            tooltip = 'Wait for the picking to be unpaused!'
         end
 
         button.enabled = enabled
@@ -278,6 +384,163 @@ function Public.try_destroy_picking_ui_for_each(players)
     for _, p in pairs(players) do
         Public.try_destroy_picking_ui(p)
     end
+end
+
+---Draws a single numeric textfield.
+---@param parent LuaGuiElement Parent widget
+---@param caption string Description of the field
+---@param value string Value set in the field.
+---@param name string Name of the textfield.
+local function draw_referee_ui_pick_timer_numeric_field(parent, caption, value, name)
+    local flow = parent.add({ type = 'flow', direction = 'horizontal' })
+    flow.style.vertical_align = 'center'
+    flow.add({ type = 'label', caption = '   ' .. caption })
+    local field = flow.add({ type = 'textfield', name = name, allow_decimal = true, numeric = true })
+    field.text = value
+    field.style.maximal_width = 50
+    flow.add({ type = 'label', caption = 'in seconds' })
+end
+
+---Draws option related to pick timer setting, before any picking phase.
+---@param parent LuaGuiElement Parent widget
+local function draw_referee_ui_pick_timer_startup(parent)
+    local special = storage.special_games_variables.captain_mode
+    local flow = parent.add({ type = 'flow', direction = 'horizontal' })
+    flow.add({ type = 'label', caption = 'Picking timer is' })
+    flow.add({
+        type = 'switch',
+        name = 'captain_pick_timer_enable',
+        switch_state = special.captain_pick_timer_enabled and 'left' or 'right',
+        left_label_caption = 'enabled',
+        right_label_caption = 'disabled',
+    })
+
+    if special.captain_pick_timer_enabled then
+        flow = parent.add({ type = 'flow', direction = 'vertical', style = 'packed_vertical_flow' })
+        draw_referee_ui_pick_timer_numeric_field(
+            flow,
+            'Initial timer value',
+            tostring(special.captain_pick_timer_base / 60),
+            'captain_pick_timer_base'
+        )
+        draw_referee_ui_pick_timer_numeric_field(
+            flow,
+            'Time gained per pick',
+            tostring(special.captain_pick_timer_gain / 60),
+            'captain_pick_timer_gain'
+        )
+        draw_referee_ui_pick_timer_numeric_field(
+            flow,
+            'Extra time for the first captain',
+            tostring(special.captain_pick_timer_extra / 60),
+            'captain_pick_timer_extra'
+        )
+    end
+end
+
+---Draws option related to pick timer setting, before any picking phase.
+---@param parent LuaGuiElement Parent widget
+local function draw_referee_ui_pick_timer_runtime(parent)
+    local special = storage.special_games_variables.captain_mode
+    if not special.captain_pick_timer_enabled then
+        return
+    end
+
+    local flow = parent.add({ type = 'flow', direction = 'horizontal' })
+    flow.add({ type = 'label', caption = 'Picking timer is' })
+    flow.add({
+        type = 'switch',
+        name = 'captain_pick_timer_pause',
+        switch_state = special.captain_pick_timer_paused and 'left' or 'right',
+        left_label_caption = 'paused',
+        right_label_caption = 'running',
+    })
+end
+
+---Draw options related to pick timer manipulation.
+---@param parent LuaGuiElement Parent widget
+function Public.draw_referee_ui_pick_timer(parent)
+    local special = storage.special_games_variables.captain_mode
+    if special.prepaPhase and not special.initialPickingPhaseStarted then
+        draw_referee_ui_pick_timer_startup(parent)
+    end
+
+    if special.pickingPhase then
+        draw_referee_ui_pick_timer_runtime(parent)
+    end
+end
+
+---Get string with estimated time for picks phase.
+---Uses a weighted blend of clock-based and pick-count-based estimates.
+---As fewer players remain, the estimate relies more on a reasonable per-pick
+---time assumption rather than accumulated clock time.
+local function get_estimated_pick_duration()
+    local special = storage.special_games_variables.captain_mode
+    local count = #special.listPlayers
+    -- We can only estimate time if we have at least three players on the list.
+    if count <= 2 then
+        return ''
+    end
+
+    if special.communityPickingMode then
+        return 'Estimated picking phase duration: instantaneous'
+    end
+
+    -- If timer is active then extra+base time is already factored in.
+    local active = special.captain_pick_timer['north'] ~= nil
+    local remaining_picks = active and count or (count - 2)
+
+    -- Calculate total available clock time
+    local total = active and 0 or special.captain_pick_timer_extra
+    for _, f in ipairs({ 'north', 'south' }) do
+        total = total + (special.captain_pick_timer[f] or special.captain_pick_timer_base)
+    end
+    total = total + (remaining_picks * special.captain_pick_timer_gain)
+
+    -- Pick-based estimate: assume reasonable time per pick (45 seconds)
+    local per_pick = 45 * 60
+    local pick_estimate = remaining_picks * per_pick
+
+    -- Blend estimates: as remaining_picks decreases, trust pick_estimate more.
+    -- At 15+ picks, use full clock estimate; at 0 picks, use full pick estimate.
+    local blend_factor = math.min(1, remaining_picks / 15)
+    local estimate = (total * blend_factor) + (pick_estimate * (1 - blend_factor))
+
+    return 'Estimated picking phase duration: ' .. ticks_to_time(estimate)
+end
+
+---Draw estimate time of all picks if timer is enabled.
+---@param parent LuaGuiElement Parent widget
+function Public.draw_lobby_ui_estimate(parent)
+    -- Due to how lobby UI is constructed, we always create estimation
+    -- label and just hide it. It's made visible if timer is enabled.
+    local l = parent.add({
+        type = 'label',
+        name = 'captain_pick_timer_estimate',
+        caption = get_estimated_pick_duration(),
+        style = 'label_with_left_padding',
+    })
+    l.visible = false
+end
+
+---Update estimate time of all picks if timer is enabled.
+---@param parent LuaGuiElement Parent widget
+function Public.update_lobby_ui_estimate(parent)
+    local special = storage.special_games_variables.captain_mode
+    if not special.captain_pick_timer_enabled then
+        parent['captain_pick_timer_estimate'].visible = false
+        return
+    end
+
+    -- Is estimate available?
+    local estimate = get_estimated_pick_duration()
+    if #estimate == 0 then
+        parent['captain_pick_timer_estimate'].visible = false
+        return
+    end
+
+    parent['captain_pick_timer_estimate'].visible = true
+    parent['captain_pick_timer_estimate'].caption = estimate
 end
 
 return Public
