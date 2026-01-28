@@ -237,8 +237,6 @@ local validate_args = function(data)
     local griefer = data.griefer
     local trusted = data.trusted
     local playtime = data.playtime
-    local message = data.message
-    local cmd = data.cmd
 
     if not griefer or not game.get_player(griefer) then
         Utils.print_to(player, 'Invalid name.')
@@ -272,21 +270,6 @@ local validate_args = function(data)
 
     if not trusted and not is_admin(player) or playtime <= settings.playtime_for_vote and not is_admin(player) then
         Utils.print_to(player, 'You are not trusted enough to run this command.')
-        return false
-    end
-
-    if not message then
-        Utils.print_to(player, 'No valid reason was given.')
-        return false
-    end
-
-    if cmd == 'jail' and message and string.len(message) <= 0 then
-        Utils.print_to(player, 'No valid reason was given.')
-        return false
-    end
-
-    if cmd == 'jail' and message and string.len(message) <= 10 then
-        Utils.print_to(player, 'Reason is too short.')
         return false
     end
 
@@ -534,14 +517,12 @@ Event.add(defines.events.on_console_command, function(event)
     end
     local griefer = t[1]
     table.remove(t, 1)
-    message = concat(t, ' ')
+    message = #t > 0 and concat(t, ' ') or 'unspecified'
     local data = {
         player = player,
         griefer = griefer,
         trusted = trusted,
         playtime = playtime,
-        message = message,
-        cmd = cmd,
     }
     local success = validate_args(data)
     if not success then
@@ -594,7 +575,7 @@ Server.on_data_set_changed(jailed_data_set, function(data)
     end
 end)
 
-commands.add_command('jail', 'Sends the player to gulag! Valid arguments are:\n/jail <LuaPlayer> <reason>', function()
+commands.add_command('jail', 'Sends the player to gulag! Valid arguments are:\n/jail <LuaPlayer> [reason]', function()
     return
 end)
 
